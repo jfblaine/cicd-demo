@@ -1,0 +1,7 @@
+name: testapp
+namespace: testapp-dev
+image: image-registry.openshift-image-registry.svc:5000/testapp-dev/testapp@sha256:2a253851cf93e959e9bbee8ebfa0b9ce7e39091a552338e20526b97921900c33
+replicas: 1
+jdbcurl: jdbc:postgresql://dev.com/devdb
+environment: dev
+release: 773a427aa4425ea21fb6c4a18eeacfb38fa4b5fc

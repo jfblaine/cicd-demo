@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: {{ .Values.name | quote }}
+    app.kubernetes.io/component: {{ .Values.name | quote }}
+    app.kubernetes.io/instance: {{ .Values.name | quote }}
+    app.kubernetes.io/name: {{ .Values.name | quote }}
+  name: {{ .Values.name | quote }}
+  namespace: {{ .Values.namespace | quote }}
+spec:
+  replicas: {{ int .Values.replicas }}
+  selector:
+    matchLabels:
+      deployment: {{ .Values.name | quote }}
+  template:
+    metadata:
+      labels:
+        deployment: {{ .Values.name | quote }}
+    spec:
+      containers:
+      - env:
+        - name: RELEASE
+          value: {{ .Values.release | quote }}
+        image: {{ .Values.image | quote }}
+        name: {{ .Values.name | quote }}
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5  
+          timeoutSeconds: 1
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate

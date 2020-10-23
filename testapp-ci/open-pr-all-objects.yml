@@ -1,0 +1,157 @@
+# --- EventListener excerpt:
+    # - name: pr-open-deploy
+      # interceptors:
+        # - cel:
+            # filter: >-
+              # (body.action in ['opened']) && (header.match('X-GitHub-Event',
+              # 'pull_request'))
+      # template:
+        # name: testapp-pr-open-deploy
+      # bindings:
+        # - name: testapp-pr-open-deploy
+---
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: TriggerBinding
+metadata:
+  name: testapp-pr-open-deploy
+spec:
+  params:
+    - name: SERVICE_ACCOUNT
+      value: pipeline
+    - name: HELM_GIT_URL
+      value: $(body.repository.clone_url)
+    - name: PR_NUMBER
+      value: $(body.pull_request.number)
+    - name: MERGE_BASE
+      value: $(body.pull_request.merge_base)
+    - name: PR_NAMESPACE
+      value: testapp-pr
+    - name: DEPLOYMENT
+      value: testapp
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: openshift-client-with-results
+spec:
+  params:
+  - description: The OpenShift CLI arguments to run
+    name: SCRIPT
+    type: string
+  results:
+    - name: OC_RESULT
+      description: The output of the oc command
+  steps:
+  - image: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
+    name: oc
+    script: |
+      OC_RESULT=$($(params.SCRIPT))
+      echo $OC_RESULT | tee /tekton/results/OC_RESULT
+---
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: testapp-pr-open-deploy
+spec:
+  params:
+    - name: HELM_GIT_URL
+    - name: PR_NUMBER
+    - name: MERGE_BASE
+    - name: PR_NAMESPACE
+    - name: DEPLOYMENT
+  tasks:
+    - name: get-image-url-with-sha
+      taskRef:
+        name: openshift-client-with-results
+      params:
+        - name: SCRIPT
+          value: |
+            oc get istag $(params.DEPLOYMENT):$(params.MERGE_BASE) -ojsonpath='{.image.dockerImageReference}' -n $(params.PR_NAMESPACE)
+    ############################################
+    - name: create-argocd-application
+      taskRef:
+        name: openshift-client
+        kind: ClusterTask
+      runAfter:
+        - get-image-url-with-sha
+      params:
+        - name: SCRIPT
+          value: |
+            oc apply -f - << EOF
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            metadata:
+              name: $(params.DEPLOYMENT)-pr$(params.PR_NUMBER)
+              namespace: argocd
+            spec:
+              destination:
+                namespace: $(params.PR_NAMESPACE)
+                server: https://kubernetes.default.svc
+              project: default
+              source:
+                helm:
+                  values: |-
+                    name: $(params.DEPLOYMENT)-pr$(params.PR_NUMBER)
+                    namespace: $(params.PR_NAMESPACE)
+                    image: $(tasks.get-image-url-with-sha.results.OC_RESULT)
+                    replicas: 1
+                    jdbcurl: jdbc:postgresql://pr.com/prdb
+                    environment: pr
+                    release: $(params.DEPLOYMENT)-pr$(params.PR_NUMBER)
+                path: .
+                repoURL: $(params.HELM_GIT_URL)
+                targetRevision: master
+              syncPolicy:
+                syncOptions:
+                  - CreateNamespace=true
+                automated:
+                  prune: false
+                  selfHeal: false
+            EOF
+---
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: TriggerTemplate
+metadata:
+  name: testapp-pr-open-deploy
+spec:
+  params:
+    - name: SERVICE_ACCOUNT
+      description: >-
+        The ServiceAccount under which to run the Pipeline.
+    - name: HELM_GIT_URL
+      description: >-
+        The repository containing the helm artifacts for the app.
+    - name: PR_NUMBER
+      description: >-
+        Pull request number.
+    - name: MERGE_BASE
+      description: >-
+        Sha for the git commit the pull request pertains to.
+    - name: PR_NAMESPACE
+      description: >-
+        Target namespace to deploy the PR-specific app.
+    - name: DEPLOYMENT
+      description: >-
+        Name of application.
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1beta1
+      kind: PipelineRun
+      metadata:
+        generateName: testapp-pr-open-deploy-
+      spec:
+        serviceAccountName: $(params.SERVICE_ACCOUNT)
+        pipelineRef:
+          name: testapp-pr-open-deploy
+        params:
+          - name: SERVICE_ACCOUNT
+            value: $(params.SERVICE_ACCOUNT)
+          - name: HELM_GIT_URL
+            value: $(params.HELM_GIT_URL)
+          - name: PR_NUMBER
+            value: $(params.PR_NUMBER)
+          - name: MERGE_BASE
+            value: $(params.MERGE_BASE)
+          - name: PR_NAMESPACE
+            value: $(params.PR_NAMESPACE)
+          - name: DEPLOYMENT
+            value: $(params.DEPLOYMENT)

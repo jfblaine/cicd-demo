@@ -1,0 +1,9 @@
+{{ if and .Values.environment (eq .Values.environment "qa") }}
+apiVersion: v1
+data:
+  url: {{ .Values.jdbcurl | quote }}
+kind: ConfigMap
+metadata:
+  name: db-cxn-string
+  namespace: {{ .Values.namespace | quote }}
+{{ end }}

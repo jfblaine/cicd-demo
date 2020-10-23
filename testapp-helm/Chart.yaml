@@ -1,0 +1,8 @@
+description: example go app
+home: https://golang.io
+keywords:
+- quickstart
+name: testapp
+sources:
+- https://gitea-server-gitea.apps-crc.testing/jfblaine
+version: "0.1"

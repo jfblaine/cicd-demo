@@ -1,0 +1,83 @@
+# --- EventListener excerpt:
+    # - name: pr-closed-cleanup
+      # interceptors:
+        # - cel:
+            # filter: >-
+              # (body.action in ['closed']) && (header.match('X-GitHub-Event',
+              # 'pull_request'))
+      # template:
+        # name: testapp-pr-closed-cleanup
+      # bindings:
+        # - name: testapp-pr-closed-cleanup
+---
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: TriggerBinding
+metadata:
+  name: testapp-pr-closed-cleanup
+spec:
+  params:
+    - name: SERVICE_ACCOUNT
+      value: pipeline
+    - name: PR_NUMBER
+      value: $(body.pull_request.number)
+    - name: PR_NAMESPACE
+      value: testapp-pr
+    - name: DEPLOYMENT
+      value: testapp
+---
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: testapp-pr-closed-cleanup
+spec:
+  params:
+    - name: PR_NUMBER
+    - name: PR_NAMESPACE
+    - name: DEPLOYMENT
+  tasks:
+    - name: delete-pr-app
+      taskRef:
+        name: openshift-client
+        kind: ClusterTask
+      params:
+        - name: SCRIPT
+          value: |
+            oc delete applications.argoproj.io $(params.DEPLOYMENT)-pr$(params.PR_NUMBER) -n argocd
+            oc delete all -l app=$(params.DEPLOYMENT)-pr$(params.PR_NUMBER) -n $(params.PR_NAMESPACE)
+---
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: TriggerTemplate
+metadata:
+  name: testapp-pr-closed-cleanup
+spec:
+  params:
+    - name: SERVICE_ACCOUNT
+      description: >-
+        The ServiceAccount under which to run the Pipeline.
+    - name: PR_NUMBER
+      description: >-
+        Pull request number.
+    - name: PR_NAMESPACE
+      description: >-
+        Target namespace to deploy the PR-specific app.
+    - name: DEPLOYMENT
+      description: >-
+        Name of application.
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1beta1
+      kind: PipelineRun
+      metadata:
+        generateName: testapp-pr-closed-cleanup-
+      spec:
+        serviceAccountName: $(params.SERVICE_ACCOUNT)
+        pipelineRef:
+          name: testapp-pr-closed-cleanup
+        params:
+          - name: SERVICE_ACCOUNT
+            value: $(params.SERVICE_ACCOUNT)
+          - name: PR_NUMBER
+            value: $(params.PR_NUMBER)
+          - name: PR_NAMESPACE
+            value: $(params.PR_NAMESPACE)
+          - name: DEPLOYMENT
+            value: $(params.DEPLOYMENT)
